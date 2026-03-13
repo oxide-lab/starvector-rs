@@ -71,10 +71,20 @@ jobs:
         uses: Jimver/cuda-toolkit@v0.2.23
         with:
           cuda: ${{ env.CUDA_VERSION }}
-          use-github-cache: true
+          use-github-cache: false
 
-      - name: Build binary
+      - name: Build binary (CPU)
+        if: ${{ !matrix.needs_cuda }}
         shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --target "${{ matrix.target }}" ${{ matrix.cargo_features }}
+
+      - name: Build binary (CUDA)
+        if: matrix.needs_cuda
+        shell: bash
+        env:
+          CUDA_COMPUTE_CAP: "86"
         run: |
           set -euo pipefail
           cargo build --release --locked --target "${{ matrix.target }}" ${{ matrix.cargo_features }}
