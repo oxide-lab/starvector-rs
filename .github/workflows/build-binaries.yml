@@ -1,0 +1,145 @@
+name: Build Binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+        type: string
+      release_name:
+        description: "Release title"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.os_tag }}-${{ matrix.flavor }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            os_tag: linux
+            target: x86_64-unknown-linux-gnu
+            flavor: cpu
+            cargo_features: ""
+            artifact_ext: tar.gz
+            needs_cuda: false
+          - runner: windows-2022
+            os_tag: win
+            target: x86_64-pc-windows-msvc
+            flavor: cpu
+            cargo_features: ""
+            artifact_ext: zip
+            needs_cuda: false
+          - runner: ubuntu-22.04
+            os_tag: linux
+            target: x86_64-unknown-linux-gnu
+            flavor: cuda-12.4
+            cargo_features: "--features cuda"
+            artifact_ext: tar.gz
+            needs_cuda: true
+          - runner: windows-2022
+            os_tag: win
+            target: x86_64-pc-windows-msvc
+            flavor: cuda-12.4
+            cargo_features: "--features cuda"
+            artifact_ext: zip
+            needs_cuda: true
+
+    env:
+      CARGO_TERM_COLOR: always
+      CUDA_VERSION: "12.4.1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup CUDA toolkit
+        if: matrix.needs_cuda
+        uses: Jimver/cuda-toolkit@v0.2.23
+        with:
+          cuda: ${{ env.CUDA_VERSION }}
+          use-github-cache: true
+
+      - name: Build binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --target "${{ matrix.target }}" ${{ matrix.cargo_features }}
+
+      - name: Prepare package metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_id="b${{ github.run_number }}"
+          base="starvector-rs-${build_id}-bin-${{ matrix.os_tag }}-${{ matrix.flavor }}-x64"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+
+      - name: Package (Linux)
+        if: matrix.os_tag == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ steps.meta.outputs.base }}"
+          mkdir -p "${base}"
+          cp "target/${{ matrix.target }}/release/starvector-rs" "${base}/"
+          cp README.md LICENSE THIRD_PARTY_LICENSES.md "${base}/"
+          tar -czf "${base}.tar.gz" "${base}"
+
+      - name: Package (Windows)
+        if: matrix.os_tag == 'win'
+        shell: pwsh
+        run: |
+          $base = "${{ steps.meta.outputs.base }}"
+          New-Item -ItemType Directory -Path $base -Force | Out-Null
+          Copy-Item "target\${{ matrix.target }}\release\starvector-rs.exe" "$base\starvector-rs.exe"
+          Copy-Item README.md, LICENSE, THIRD_PARTY_LICENSES.md $base
+          Compress-Archive -Path "$base\*" -DestinationPath "$base.zip" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.base }}
+          path: ${{ steps.meta.outputs.base }}.${{ matrix.artifact_ext }}
+          if-no-files-found: error
+
+  release:
+    name: Publish Release
+    runs-on: ubuntu-22.04
+    needs: build
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Prepare release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          find dist -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release-assets/ \;
+          ls -lah release-assets
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.release_name != '' && inputs.release_name || inputs.release_tag }}
+          generate_release_notes: true
+          files: |
+            release-assets/*.zip
+            release-assets/*.tar.gz
