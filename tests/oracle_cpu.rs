@@ -14,6 +14,9 @@ use starvector_rs::model::loader::{LoaderPrecisionPolicy, ReuseFirstWeightLoader
 use starvector_rs::model::vision::{StarVectorVisionConfig, StarVectorVisionTransformer};
 use starvector_rs::types::{ParsedModelMetadata, TOKENIZER_JSON_FILE};
 
+const RUN_LOCAL_MODEL_TESTS_ENV: &str = "STARVECTOR_RUN_LOCAL_MODEL_TESTS";
+const RUN_PYTHON_ORACLE_ENV: &str = "STARVECTOR_RUN_PYTHON_ORACLE";
+
 fn model_dir() -> PathBuf {
     if let Ok(path) = std::env::var("STARVECTOR_MODEL_DIR") {
         return PathBuf::from(path);
@@ -22,6 +25,32 @@ fn model_dir() -> PathBuf {
         .join("..")
         .join("models")
         .join("starvector-1b-im2svg")
+}
+
+fn env_is_enabled(name: &str) -> bool {
+    std::env::var(name).ok().as_deref() == Some("1")
+}
+
+fn require_oracle_cpu() -> Result<Option<PathBuf>, Box<dyn Error + Send + Sync>> {
+    if !env_is_enabled(RUN_LOCAL_MODEL_TESTS_ENV) {
+        eprintln!(
+            "oracle_cpu: skipped (set {RUN_LOCAL_MODEL_TESTS_ENV}=1 to enable local-model tests)"
+        );
+        return Ok(None);
+    }
+    if !env_is_enabled(RUN_PYTHON_ORACLE_ENV) {
+        eprintln!("oracle_cpu: skipped (set {RUN_PYTHON_ORACLE_ENV}=1 to enable python parity)");
+        return Ok(None);
+    }
+    let dir = model_dir();
+    if !dir.exists() {
+        eprintln!(
+            "oracle_cpu: skipped (model dir not found: {})",
+            dir.display()
+        );
+        return Ok(None);
+    }
+    Ok(Some(dir))
 }
 
 fn sample_image() -> PathBuf {
@@ -82,7 +111,9 @@ struct GreedyTraceOutput {
 
 #[test]
 fn oracle_cpu_greedy_step_trace_matches_rust_decoder() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let model_dir = model_dir();
+    let Some(model_dir) = require_oracle_cpu()? else {
+        return Ok(());
+    };
     let image = sample_image();
     let script = python_oracle_script();
     run_python_preflight(&script, &model_dir)?;

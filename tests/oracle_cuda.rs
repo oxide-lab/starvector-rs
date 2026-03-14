@@ -6,6 +6,9 @@ use candle::Device;
 use serde::Deserialize;
 use starvector_rs::{GenerationConfig, PrecisionPolicy, StarVector};
 
+const RUN_LOCAL_MODEL_TESTS_ENV: &str = "STARVECTOR_RUN_LOCAL_MODEL_TESTS";
+const RUN_SAFE_1B_CUDA_ENV: &str = "STARVECTOR_RUN_SAFE_1B_CUDA";
+
 fn model_dir() -> PathBuf {
     if let Ok(path) = std::env::var("STARVECTOR_MODEL_DIR") {
         return PathBuf::from(path);
@@ -14,6 +17,10 @@ fn model_dir() -> PathBuf {
         .join("..")
         .join("models")
         .join("starvector-1b-im2svg")
+}
+
+fn env_is_enabled(name: &str) -> bool {
+    std::env::var(name).ok().as_deref() == Some("1")
 }
 
 fn sample_image() -> PathBuf {
@@ -45,6 +52,16 @@ struct PreflightOut {
 #[test]
 fn rust_cuda_matches_rust_cpu_and_optional_python_cuda() -> Result<(), Box<dyn Error + Send + Sync>>
 {
+    if !env_is_enabled(RUN_LOCAL_MODEL_TESTS_ENV) {
+        eprintln!(
+            "oracle_cuda: skipped (set {RUN_LOCAL_MODEL_TESTS_ENV}=1 to enable local-model tests)"
+        );
+        return Ok(());
+    }
+    if !env_is_enabled(RUN_SAFE_1B_CUDA_ENV) {
+        eprintln!("oracle_cuda: skipped (set {RUN_SAFE_1B_CUDA_ENV}=1 to enable CUDA smoke)");
+        return Ok(());
+    }
     if !cfg!(feature = "cuda") {
         eprintln!("oracle_cuda: not run (crate built without `cuda` feature)");
         return Ok(());
@@ -56,6 +73,13 @@ fn rust_cuda_matches_rust_cpu_and_optional_python_cuda() -> Result<(), Box<dyn E
 
     let cuda = Device::new_cuda(0)?;
     let model_path = model_dir();
+    if !model_path.exists() {
+        eprintln!(
+            "oracle_cuda: skipped (model dir not found: {})",
+            model_path.display()
+        );
+        return Ok(());
+    }
     let image = sample_image();
     let mut cuda_model = StarVector::load(&model_path, &cuda, PrecisionPolicy::for_device(&cuda))?;
     let cfg = GenerationConfig {

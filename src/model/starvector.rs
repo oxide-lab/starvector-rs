@@ -339,6 +339,7 @@ mod tests {
 
     use super::{PrecisionPolicy, StarVector};
     use crate::model::generation::GenerationConfig;
+    const RUN_LOCAL_MODEL_TESTS_ENV: &str = "STARVECTOR_RUN_LOCAL_MODEL_TESTS";
 
     fn model_dir() -> PathBuf {
         if let Ok(path) = std::env::var("STARVECTOR_MODEL_DIR") {
@@ -348,6 +349,10 @@ mod tests {
             .join("..")
             .join("models")
             .join("starvector-1b-im2svg")
+    }
+
+    fn local_model_tests_enabled() -> bool {
+        std::env::var(RUN_LOCAL_MODEL_TESTS_ENV).ok().as_deref() == Some("1")
     }
 
     fn sample_image() -> PathBuf {
@@ -361,6 +366,19 @@ mod tests {
 
     #[test]
     fn returns_generated_text_without_repair_when_budget_is_tiny() -> candle::Result<()> {
+        if !local_model_tests_enabled() {
+            eprintln!(
+                "starvector::tests: skipped local-model generation test (set {RUN_LOCAL_MODEL_TESTS_ENV}=1)"
+            );
+            return Ok(());
+        }
+        if !model_dir().exists() {
+            eprintln!(
+                "starvector::tests: skipped local-model generation test (model dir not found: {})",
+                model_dir().display()
+            );
+            return Ok(());
+        }
         let device = Device::Cpu;
         let mut model = StarVector::load(model_dir(), &device, PrecisionPolicy::cpu_default())?;
         let out = model

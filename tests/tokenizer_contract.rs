@@ -16,6 +16,8 @@ const EXPECTED_VOCAB_SIZE: usize = 49156;
 const EXPECTED_BASE_VOCAB_SIZE: usize = 49152;
 const EXPECTED_PROMPT_TOKENS: [u32; 2] = [46, 3672];
 const EXPECTED_STOP_TOKENS: [u32; 3] = [377, 3672, 48];
+const RUN_LOCAL_MODEL_TESTS_ENV: &str = "STARVECTOR_RUN_LOCAL_MODEL_TESTS";
+const RUN_PYTHON_ORACLE_ENV: &str = "STARVECTOR_RUN_PYTHON_ORACLE";
 
 fn model_dir() -> PathBuf {
     if let Ok(path) = std::env::var("STARVECTOR_MODEL_DIR") {
@@ -25,6 +27,41 @@ fn model_dir() -> PathBuf {
         .join("..")
         .join("models")
         .join("starvector-1b-im2svg")
+}
+
+fn env_is_enabled(name: &str) -> bool {
+    std::env::var(name).ok().as_deref() == Some("1")
+}
+
+fn require_local_model_tests() -> Result<Option<PathBuf>, Box<dyn Error + Send + Sync>> {
+    if !env_is_enabled(RUN_LOCAL_MODEL_TESTS_ENV) {
+        eprintln!(
+            "tokenizer_contract: skipped (set {RUN_LOCAL_MODEL_TESTS_ENV}=1 to enable local-model tests)"
+        );
+        return Ok(None);
+    }
+    let dir = model_dir();
+    if !dir.exists() {
+        eprintln!(
+            "tokenizer_contract: skipped (model dir not found: {})",
+            dir.display()
+        );
+        return Ok(None);
+    }
+    Ok(Some(dir))
+}
+
+fn require_python_oracle_tests() -> Result<Option<PathBuf>, Box<dyn Error + Send + Sync>> {
+    let Some(dir) = require_local_model_tests()? else {
+        return Ok(None);
+    };
+    if !env_is_enabled(RUN_PYTHON_ORACLE_ENV) {
+        eprintln!(
+            "tokenizer_contract: skipped python parity (set {RUN_PYTHON_ORACLE_ENV}=1 to enable)"
+        );
+        return Ok(None);
+    }
+    Ok(Some(dir))
 }
 
 fn python_oracle_script() -> PathBuf {
@@ -98,7 +135,9 @@ fn parse_tensor_shape_from_safetensors_header(
 
 #[test]
 fn tokenizer_and_model_vocab_contract_is_fixed() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let model_dir = model_dir();
+    let Some(model_dir) = require_local_model_tests()? else {
+        return Ok(());
+    };
     let metadata = ParsedModelMetadata::from_model_dir(&model_dir)?;
 
     for required in ParsedModelMetadata::required_files() {
@@ -151,7 +190,9 @@ fn tokenizer_and_model_vocab_contract_is_fixed() -> Result<(), Box<dyn Error + S
 
 #[test]
 fn special_token_ids_are_frozen() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let model_dir = model_dir();
+    let Some(model_dir) = require_local_model_tests()? else {
+        return Ok(());
+    };
     let metadata = ParsedModelMetadata::from_model_dir(&model_dir)?;
     let token_ids = metadata.special_token_ids();
 
@@ -180,7 +221,9 @@ fn special_token_ids_are_frozen() -> Result<(), Box<dyn Error + Send + Sync>> {
 
 #[test]
 fn prompt_and_stop_sequences_match_contract() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let model_dir = model_dir();
+    let Some(model_dir) = require_local_model_tests()? else {
+        return Ok(());
+    };
     let tokenizer = load_tokenizer(&model_dir)?;
 
     let prompt_ids = tokenizer.encode("<svg", false)?.get_ids().to_vec();
@@ -194,7 +237,9 @@ fn prompt_and_stop_sequences_match_contract() -> Result<(), Box<dyn Error + Send
 #[test]
 fn encode_decode_parity_with_python_tokenizers_for_fixed_svg()
 -> Result<(), Box<dyn Error + Send + Sync>> {
-    let model_dir = model_dir();
+    let Some(model_dir) = require_python_oracle_tests()? else {
+        return Ok(());
+    };
     run_python_preflight(&model_dir)?;
     let tokenizer = load_tokenizer(&model_dir)?;
     let input = "<svg viewBox=\"0 0 32 32\"><path d=\"M0 0h32v32H0z\"/></svg>";
@@ -266,7 +311,9 @@ fn python_oracle_tokenize_mode_matches_rust_for_fixed_strings()
         results: Vec<TokenizeOne>,
     }
 
-    let model_dir = model_dir();
+    let Some(model_dir) = require_python_oracle_tests()? else {
+        return Ok(());
+    };
     run_python_preflight(&model_dir)?;
     let tokenizer = load_tokenizer(&model_dir)?;
     let tokenizer_path = model_dir.join(TOKENIZER_JSON_FILE);
@@ -318,7 +365,9 @@ fn python_oracle_tokenize_mode_matches_rust_for_fixed_strings()
 #[test]
 fn local_tokenizer_is_self_sufficient_without_runtime_mutation()
 -> Result<(), Box<dyn Error + Send + Sync>> {
-    let model_dir = model_dir();
+    let Some(model_dir) = require_local_model_tests()? else {
+        return Ok(());
+    };
     let tokenizer = load_tokenizer(&model_dir)?;
     let added_tokens_raw = std::fs::read_to_string(model_dir.join(ADDED_TOKENS_FILE))?;
     let added_tokens: std::collections::HashMap<String, u32> =

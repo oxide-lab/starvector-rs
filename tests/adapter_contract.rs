@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 use starvector_rs::model::adapter::StarVectorAdapter;
 use starvector_rs::model::loader::{LoaderPrecisionPolicy, ReuseFirstWeightLoader};
 
+const RUN_LOCAL_MODEL_TESTS_ENV: &str = "STARVECTOR_RUN_LOCAL_MODEL_TESTS";
+const RUN_PYTHON_ORACLE_ENV: &str = "STARVECTOR_RUN_PYTHON_ORACLE";
+
 fn model_dir() -> PathBuf {
     if let Ok(path) = std::env::var("STARVECTOR_MODEL_DIR") {
         return PathBuf::from(path);
@@ -16,6 +19,34 @@ fn model_dir() -> PathBuf {
         .join("..")
         .join("models")
         .join("starvector-1b-im2svg")
+}
+
+fn env_is_enabled(name: &str) -> bool {
+    std::env::var(name).ok().as_deref() == Some("1")
+}
+
+fn require_adapter_parity() -> Result<Option<PathBuf>, Box<dyn Error + Send + Sync>> {
+    if !env_is_enabled(RUN_LOCAL_MODEL_TESTS_ENV) {
+        eprintln!(
+            "adapter_contract: skipped (set {RUN_LOCAL_MODEL_TESTS_ENV}=1 to enable local-model tests)"
+        );
+        return Ok(None);
+    }
+    if !env_is_enabled(RUN_PYTHON_ORACLE_ENV) {
+        eprintln!(
+            "adapter_contract: skipped (set {RUN_PYTHON_ORACLE_ENV}=1 to enable python parity)"
+        );
+        return Ok(None);
+    }
+    let dir = model_dir();
+    if !dir.exists() {
+        eprintln!(
+            "adapter_contract: skipped (model dir not found: {})",
+            dir.display()
+        );
+        return Ok(None);
+    }
+    Ok(Some(dir))
 }
 
 fn python_oracle_script() -> PathBuf {
@@ -68,7 +99,9 @@ struct AdapterOracleOutput {
 
 #[test]
 fn adapter_matches_python_oracle() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let model_dir = model_dir();
+    let Some(model_dir) = require_adapter_parity()? else {
+        return Ok(());
+    };
     run_python_preflight(&python_oracle_script(), &model_dir)?;
     let loader = ReuseFirstWeightLoader::from_model_dir(&model_dir)?;
     let views = loader.make_views(LoaderPrecisionPolicy::cpu_default(), &Device::Cpu)?;

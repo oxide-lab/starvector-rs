@@ -2,6 +2,9 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::process::Command;
 
+const RUN_LOCAL_MODEL_TESTS_ENV: &str = "STARVECTOR_RUN_LOCAL_MODEL_TESTS";
+const RUN_SAFE_1B_CUDA_ENV: &str = "STARVECTOR_RUN_SAFE_1B_CUDA";
+
 fn model_dir() -> PathBuf {
     if let Ok(path) = std::env::var("STARVECTOR_MODEL_DIR") {
         return PathBuf::from(path);
@@ -10,6 +13,10 @@ fn model_dir() -> PathBuf {
         .join("..")
         .join("models")
         .join("starvector-1b-im2svg")
+}
+
+fn env_is_enabled(name: &str) -> bool {
+    std::env::var(name).ok().as_deref() == Some("1")
 }
 
 fn sample_image() -> PathBuf {
@@ -23,12 +30,29 @@ fn sample_image() -> PathBuf {
 
 #[test]
 fn infer_cli_outputs_svg_and_writes_file() -> Result<(), Box<dyn Error + Send + Sync>> {
+    if !env_is_enabled(RUN_LOCAL_MODEL_TESTS_ENV) {
+        eprintln!(
+            "cli_smoke: skipped (set {RUN_LOCAL_MODEL_TESTS_ENV}=1 to enable local-model tests)"
+        );
+        return Ok(());
+    }
+    if !env_is_enabled(RUN_SAFE_1B_CUDA_ENV) {
+        eprintln!("cli_smoke: skipped (set {RUN_SAFE_1B_CUDA_ENV}=1 to enable CUDA smoke)");
+        return Ok(());
+    }
     if !cfg!(feature = "cuda") {
         eprintln!("cli_smoke: not run (crate built without `cuda` feature)");
         return Ok(());
     }
     if !candle::utils::cuda_is_available() {
         eprintln!("cli_smoke: not run (CUDA is not available)");
+        return Ok(());
+    }
+    if !model_dir().exists() {
+        eprintln!(
+            "cli_smoke: skipped (model dir not found: {})",
+            model_dir().display()
+        );
         return Ok(());
     }
 

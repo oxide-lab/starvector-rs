@@ -19,6 +19,8 @@ def _add_llama_cpp_gguf_to_path(repo_root: Path) -> None:
 
 def _numpy_from_reader(reader, key: str) -> np.ndarray:
     t = reader.get_tensor(key)
+    if getattr(t, "dtype", None) is not None and str(t.dtype) == "torch.bfloat16":
+        t = t.float()
     return t.cpu().numpy()
 
 def _sha256(path: Path) -> str:
@@ -63,7 +65,7 @@ def main() -> None:
     config = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
 
     writer = gguf.GGUFWriter(str(out_path), "starvector")
-    writer.add_name("starvector-1b-im2svg-full")
+    writer.add_name(f"{model_dir.name}-full")
     writer.add_description("Full StarVector package: image encoder + adapter + decoder")
     writer.add_key_value("starvector.model_type", "starvector", gguf.GGUFValueType.STRING)
     writer.add_key_value(
@@ -95,10 +97,11 @@ def main() -> None:
         gguf.GGUFValueType.STRING,
     )
 
-    shards = [
-        model_dir / "model-00001-of-00002.safetensors",
-        model_dir / "model-00002-of-00002.safetensors",
-    ]
+    shards = sorted(model_dir.glob("model-*-of-*.safetensors"))
+    if not shards:
+        raise FileNotFoundError(
+            f"No model shards found in {model_dir} (expected model-*-of-*.safetensors)"
+        )
 
     quant_type = None
     if quant_mode == "q8_0":

@@ -324,6 +324,7 @@ mod tests {
     use super::{BigCodeConfig, BigCodeDecoder};
     use crate::model::loader::{LoaderPrecisionPolicy, ReuseFirstWeightLoader};
     use crate::types::ParsedModelMetadata;
+    const RUN_LOCAL_MODEL_TESTS_ENV: &str = "STARVECTOR_RUN_LOCAL_MODEL_TESTS";
 
     fn tiny_config() -> BigCodeConfig {
         BigCodeConfig {
@@ -347,6 +348,10 @@ mod tests {
             .join("..")
             .join("models")
             .join("starvector-1b-im2svg")
+    }
+
+    fn local_model_tests_enabled() -> bool {
+        std::env::var(RUN_LOCAL_MODEL_TESTS_ENV).ok().as_deref() == Some("1")
     }
 
     fn max_abs_diff(a: &Tensor, b: &Tensor) -> candle::Result<f32> {
@@ -377,6 +382,19 @@ mod tests {
 
     #[test]
     fn prefix_and_cached_step_match_full_recompute_on_real_weights() -> candle::Result<()> {
+        if !local_model_tests_enabled() {
+            eprintln!(
+                "bigcode::tests: skipped local-weight test (set {RUN_LOCAL_MODEL_TESTS_ENV}=1)"
+            );
+            return Ok(());
+        }
+        if !model_dir().exists() {
+            eprintln!(
+                "bigcode::tests: skipped local-weight test (model dir not found: {})",
+                model_dir().display()
+            );
+            return Ok(());
+        }
         let parsed = ParsedModelMetadata::from_model_dir(&model_dir())
             .map_err(|e| candle::Error::msg(e.to_string()))?;
         let cfg = BigCodeConfig::from_model_config(&parsed.model_config);
@@ -405,6 +423,19 @@ mod tests {
 
     #[test]
     fn clear_kv_cache_restores_fresh_prefix_behavior() -> candle::Result<()> {
+        if !local_model_tests_enabled() {
+            eprintln!(
+                "bigcode::tests: skipped local-weight test (set {RUN_LOCAL_MODEL_TESTS_ENV}=1)"
+            );
+            return Ok(());
+        }
+        if !model_dir().exists() {
+            eprintln!(
+                "bigcode::tests: skipped local-weight test (model dir not found: {})",
+                model_dir().display()
+            );
+            return Ok(());
+        }
         let parsed = ParsedModelMetadata::from_model_dir(&model_dir())
             .map_err(|e| candle::Error::msg(e.to_string()))?;
         let cfg = BigCodeConfig::from_model_config(&parsed.model_config);

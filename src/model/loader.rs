@@ -391,6 +391,7 @@ mod tests {
     use super::*;
 
     const BN_TRACKED_KEY: &str = "model.image_projection.norm.num_batches_tracked";
+    const RUN_LOCAL_MODEL_TESTS_ENV: &str = "STARVECTOR_RUN_LOCAL_MODEL_TESTS";
 
     fn model_dir() -> PathBuf {
         if let Ok(path) = std::env::var("STARVECTOR_MODEL_DIR") {
@@ -402,8 +403,25 @@ mod tests {
             .join("starvector-1b-im2svg")
     }
 
+    fn local_model_tests_enabled() -> bool {
+        std::env::var(RUN_LOCAL_MODEL_TESTS_ENV).ok().as_deref() == Some("1")
+    }
+
     #[test]
     fn shard_discovery_is_deduplicated_and_existing() -> Result<(), LoaderError> {
+        if !local_model_tests_enabled() {
+            eprintln!(
+                "loader::tests: skipped local-weight test (set {RUN_LOCAL_MODEL_TESTS_ENV}=1)"
+            );
+            return Ok(());
+        }
+        if !model_dir().exists() {
+            eprintln!(
+                "loader::tests: skipped local-weight test (model dir not found: {})",
+                model_dir().display()
+            );
+            return Ok(());
+        }
         let loader = ReuseFirstWeightLoader::from_model_dir(model_dir())?;
         let shards = loader.shard_paths();
         assert_eq!(shards.len(), 2, "expected two safetensor shards");
@@ -415,6 +433,19 @@ mod tests {
 
     #[test]
     fn float_loader_views_resolve_expected_prefixes() -> Result<(), LoaderError> {
+        if !local_model_tests_enabled() {
+            eprintln!(
+                "loader::tests: skipped local-weight test (set {RUN_LOCAL_MODEL_TESTS_ENV}=1)"
+            );
+            return Ok(());
+        }
+        if !model_dir().exists() {
+            eprintln!(
+                "loader::tests: skipped local-weight test (model dir not found: {})",
+                model_dir().display()
+            );
+            return Ok(());
+        }
         let loader = ReuseFirstWeightLoader::from_model_dir(model_dir())?;
         let views = loader.make_views(LoaderPrecisionPolicy::cpu_default(), &Device::Cpu)?;
 
@@ -434,6 +465,19 @@ mod tests {
 
     #[test]
     fn non_float_buffers_are_loaded_without_float_cast() -> Result<(), LoaderError> {
+        if !local_model_tests_enabled() {
+            eprintln!(
+                "loader::tests: skipped local-weight test (set {RUN_LOCAL_MODEL_TESTS_ENV}=1)"
+            );
+            return Ok(());
+        }
+        if !model_dir().exists() {
+            eprintln!(
+                "loader::tests: skipped local-weight test (model dir not found: {})",
+                model_dir().display()
+            );
+            return Ok(());
+        }
         let loader = ReuseFirstWeightLoader::from_model_dir(model_dir())?;
         let non_float = loader.load_non_float_tensor(BN_TRACKED_KEY)?;
         assert_eq!(non_float.dtype, SafeTensorDtype::I64);

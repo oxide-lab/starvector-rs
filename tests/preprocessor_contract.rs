@@ -6,6 +6,9 @@ use serde::Deserialize;
 
 use starvector_rs::model::image_preprocessor::ImagePreprocessor;
 
+const RUN_LOCAL_MODEL_TESTS_ENV: &str = "STARVECTOR_RUN_LOCAL_MODEL_TESTS";
+const RUN_PYTHON_ORACLE_ENV: &str = "STARVECTOR_RUN_PYTHON_ORACLE";
+
 fn model_dir() -> PathBuf {
     if let Ok(path) = std::env::var("STARVECTOR_MODEL_DIR") {
         return PathBuf::from(path);
@@ -14,6 +17,34 @@ fn model_dir() -> PathBuf {
         .join("..")
         .join("models")
         .join("starvector-1b-im2svg")
+}
+
+fn env_is_enabled(name: &str) -> bool {
+    std::env::var(name).ok().as_deref() == Some("1")
+}
+
+fn require_preprocessor_parity() -> Result<Option<PathBuf>, Box<dyn Error + Send + Sync>> {
+    if !env_is_enabled(RUN_LOCAL_MODEL_TESTS_ENV) {
+        eprintln!(
+            "preprocessor_contract: skipped (set {RUN_LOCAL_MODEL_TESTS_ENV}=1 to enable local-model tests)"
+        );
+        return Ok(None);
+    }
+    if !env_is_enabled(RUN_PYTHON_ORACLE_ENV) {
+        eprintln!(
+            "preprocessor_contract: skipped (set {RUN_PYTHON_ORACLE_ENV}=1 to enable python parity)"
+        );
+        return Ok(None);
+    }
+    let dir = model_dir();
+    if !dir.exists() {
+        eprintln!(
+            "preprocessor_contract: skipped (model dir not found: {})",
+            dir.display()
+        );
+        return Ok(None);
+    }
+    Ok(Some(dir))
 }
 
 fn sample_image() -> PathBuf {
@@ -96,7 +127,9 @@ fn run_python_preflight(
 
 #[test]
 fn rust_preprocessor_matches_python_reference() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let model_dir = model_dir();
+    let Some(model_dir) = require_preprocessor_parity()? else {
+        return Ok(());
+    };
     let image_path = sample_image();
     let script = python_oracle_script();
     run_python_preflight(&script, &model_dir)?;

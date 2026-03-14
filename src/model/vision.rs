@@ -313,6 +313,7 @@ mod tests {
         StarVectorVisionConfig, StarVectorVisionTransformer, map_candle_vision_name_to_checkpoint,
     };
     use crate::model::loader::{LoaderPrecisionPolicy, ReuseFirstWeightLoader};
+    const RUN_LOCAL_MODEL_TESTS_ENV: &str = "STARVECTOR_RUN_LOCAL_MODEL_TESTS";
 
     fn model_dir() -> PathBuf {
         if let Ok(path) = std::env::var("STARVECTOR_MODEL_DIR") {
@@ -322,6 +323,10 @@ mod tests {
             .join("..")
             .join("models")
             .join("starvector-1b-im2svg")
+    }
+
+    fn local_model_tests_enabled() -> bool {
+        std::env::var(RUN_LOCAL_MODEL_TESTS_ENV).ok().as_deref() == Some("1")
     }
 
     #[test]
@@ -350,6 +355,19 @@ mod tests {
 
     #[test]
     fn vision_forward_returns_full_sequence() -> candle::Result<()> {
+        if !local_model_tests_enabled() {
+            eprintln!(
+                "vision::tests: skipped local-weight test (set {RUN_LOCAL_MODEL_TESTS_ENV}=1)"
+            );
+            return Ok(());
+        }
+        if !model_dir().exists() {
+            eprintln!(
+                "vision::tests: skipped local-weight test (model dir not found: {})",
+                model_dir().display()
+            );
+            return Ok(());
+        }
         let loader = ReuseFirstWeightLoader::from_model_dir(model_dir())
             .map_err(|e| candle::Error::msg(e.to_string()))?;
         let views = loader
