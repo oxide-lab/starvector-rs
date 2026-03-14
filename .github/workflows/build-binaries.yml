@@ -73,6 +73,12 @@ jobs:
           cuda: ${{ env.CUDA_VERSION }}
           use-github-cache: false
 
+      - name: Setup MSVC toolchain (Windows CUDA)
+        if: matrix.needs_cuda && matrix.os_tag == 'win'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Build binary (CPU)
         if: ${{ !matrix.needs_cuda }}
         shell: bash
@@ -80,13 +86,22 @@ jobs:
           set -euo pipefail
           cargo build --release --locked --target "${{ matrix.target }}" ${{ matrix.cargo_features }}
 
-      - name: Build binary (CUDA)
-        if: matrix.needs_cuda
+      - name: Build binary (CUDA, Linux)
+        if: matrix.needs_cuda && matrix.os_tag == 'linux'
         shell: bash
         env:
           CUDA_COMPUTE_CAP: "86"
         run: |
           set -euo pipefail
+          cargo build --release --locked --target "${{ matrix.target }}" ${{ matrix.cargo_features }}
+
+      - name: Build binary (CUDA, Windows)
+        if: matrix.needs_cuda && matrix.os_tag == 'win'
+        shell: pwsh
+        env:
+          CUDA_COMPUTE_CAP: "86"
+          NVCC_CCBIN: "cl.exe"
+        run: |
           cargo build --release --locked --target "${{ matrix.target }}" ${{ matrix.cargo_features }}
 
       - name: Prepare package metadata
